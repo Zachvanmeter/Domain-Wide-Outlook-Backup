@@ -1,260 +1,243 @@
-		#from/import for portability
+		# from/import for portability
 from psutil import process_iter
 from shutil import copyfile
 from os import path, makedirs, system, remove
-from datetime import date
 from socket import *
 from glob import glob
 from pathlib import Path
 from multiprocessing import Process
-from datetime import datetime
+from datetime import datetime,date
 from time import sleep
+from contextlib import suppress
 
-
-#pyinstaller --onefile --icon=TMF.ico CompanyOutlookBackup.py
-
+# pyinstaller -F -I=TMF.ico CompanyOutlookBackup.py
 
 	# Each of the users in a dict of their logon(key) 
 	# and the name of their backup drive folder(value)
 	# Use individual backup folders because most people
 	# have named their .pst files Outlook.pst
-  
+	
 userKeyDict = {
+		'jwayne': 'John',
+		'drenalds': 'Dennis', 
+		'deerenalds': 'Dee', 
+		'frenalds': 'Frank', 
+		'ckelly': 'Charlie', 
+		'rmcdonald': 'Mac', 
 		'zvanmeter': 'Zach'
 		}
 
-	# These users are shared computers, or Userless computers
-floorKeyDict = {
-		'Floor':'weld',
-		'Floor':'intg', 
-		'Floor':'INTG', 
-		'Floor':'mill', 
-		'Floor':'inspect', 
-		'Floor':'cnc', 
-		'Floor':'shipping', 
-		'Floor':'lathe',  
-		'Floor':'lathe',  
-		'Floor':'lwhite', 
-		'Floor':'receiving', 
-		'Floor':'tool',
-		'Floor':'troya',
-		'Floor':'maint',
-		'Floor':'Maint',
-		'Floor':'saw',
-		'Floor':'toolcrib'
-		}	
+floorKeyList = [	# These users are on shared computers, or Userless computers
+		'weld',
+		'intg', 
+		'mill', 
+		'inspect', 
+		'cnc', 
+		'shipping',  
+		'lathe',  
+		'receiving', 
+		'tool',
+		'troya',
+		'maint',
+		'saw',
+		'toolcrib',
+		'cps',
+		'tblanton',
+		]
 
-def is_up(addr):
-		# Simple ping script
-	s = socket(AF_INET, SOCK_STREAM)
-	s.settimeout(0.01)    ## set a timeout of 0.01 sec
-	if not s.connect_ex((addr,135)):    # connect to the remote host on port 135
-		s.close()                       ## (port 135 is always open on Windows machines, AFAIK)
-		return 1
-	s.close()
-
-def GenDeviceDict():
-		# These are all of the machines we care to check
-	deviceDict = {
-		'ext336':'',
-		'ext316':'',
-		'ext355':'',
-		'ext355-1':'',
-		'ext306':'',
-		'ext317':'',
-		'ex368':'',
-		'ext367':'',
-		'ext325':'',
-		'ext307':'',
+deviceDict = {
+		'ex304':'',
+		'ex311':'',
 		'ex319':'',
-		'ex329':'',
 		'ex325':'',
 		'ex326':'',
 		'ex327':'',
-		'ext326':'',
-		'ext326-1':'',
+		'ex329':'',
+		'ex368':'',
+		'ex374':'',
 		'ext300':'',
-		'EXT330-2':'',
-		'ext314':'',
-		'ext321':'',
-		'ext331':'',
-		'maint15':'',
-		'shipping14':'',
-		'mill18':'',
+		'ext306':'',
+		'ext307':'',
+		'ext308-1':'',
 		'ext309':'',
 		'ext312':'',
-		'ex304':'',
-		'epicor356':'',
-		'ext308-1':'',
+		'ext314':'',
+		'ext316':'',
+		'ext317':'',
 		'ext318':'',
-		'cmm2':'',
+		'ext320':'',
+		'ext321':'',
+		'ext325':'',
+		'ext326':'',
+		'ext326-1':'',
+		'ext330-2':'',
+		'ext331':'',
+		'ext332':'',
+		'ext336':'',
+		'ext355':'',
+		'ext355-1':'',
+		'ext367':'',
+		'ext370':'',
+		'ext373':'',
+		'cmmcnc':'',
 		'cmmlarge':'',
-		'romerlaptop':'',
-		'ext425':'',
 		'cnc18':'',
+		'cps':'',
+		'epicor356':'',
 		'intg14':'',
-		'saw18':'',
 		'lathe17':'',
+		'maint15':'',
+		'mill18':'',
+		'receiving14':'',
+		'saw18':'',
+		'shipping14':'',
+		'toolcrib':'',
 		'weld14':'',
-		'RECEIVING14':'',
-		'TOOLCRIB':''
+		'ext425':'dummy value',	# Cant ping Plant II for some reason
 		}
-	return deviceDict
-
-def GenDeviceMap():
-	print(' ')
-	
-		# Only look at computers we actually care about
-	deviceDict = GenDeviceDict()
-	
-		# 'ping' addresses 192.168.1.1 to .1.255
-	for ip in range(1,256):    
-		addr = '192.168.1.'+str(ip)
-			
-			# If the ping is good, lets format our device map dictionary
-		if is_up(addr):
-			deviceName = getfqdn(addr).replace('.tmfdomain.local','')
-			deviceName = deviceName.replace('.TMFDOMAIN.local','') #it returns in caps on users comp
-			for key, value in deviceDict.items():
-				if key.upper() == deviceName.upper():
-					deviceDict[key] = addr
-	return deviceDict	
-
-def CloseOutlook(CompIP,dstUser):	#$ dstUser added for test
-	print('Terminating outlook.')
-	system("taskkill /s "+CompIP+" /u zvanmeter /FI \"IMAGENAME eq OUTLOOK.EXE\"")
-
-def copyPst(pathDir, dstDir, dstUser, filename, deviceName, CompIP):
-		# Kill Outlook on target computer so that we can read the .pst
-	if not CompIP == '':
-		Process(target=CloseOutlook, args=(CompIP,dstUser)).start()
-		sleep(5)
 		
-		# Format Destination .pst file
-	if filename == '':
-		newfilepath = "\\\\tmfsvr7\\Users\\%s\\Email Backups\\"%(dstUser)
-		head, sep, filename = pathDir.rpartition('\\')
-		filename, sep, tail = filename.partition('.pst')
-		d = date.today()
-		dst=newfilepath+filename+" Backup "+str(d.month)+' '+str(d.day)+".pst"
-	else:
-		newfilepath = dstDir+'\\%s %s\\'%(deviceName, dstUser)
-		dst=newfilepath+filename
-		
-		# Only launch if we don't already have a backup
+def CopyPst(pathDir,DoCopy,FilePathList):
+	def reverseDict(pathDir):
+		deviceName, loginUser = ParsePath(pathDir)
+		#print(pathDir)			# all .pst files
+		if loginUser in userKeyDict:
+			#print(pathDir)		# all user .pst files
+			dst = GenDst('',deviceName,userKeyDict[loginUser],'\\\\tmfsvr7\\Users\\%s'%(userKeyDict[loginUser]),pathDir)
+			return userKeyDict[loginUser], dst, deviceName
+		else:
+			#print(pathDir)		# all leftover .pst files
+			dstDir = '\\\\tmfsvr7\\Users\\Floor Backups' if loginUser in floorKeyList else '\\\\tmfsvr7\\Users\\All Leftover Email Backups'
+			_,_,filename = pathDir.rpartition('\\')
+			dst = GenDst('%s %s'%(loginUser,filename),deviceName,loginUser,dstDir,pathDir)
+			return loginUser, dst, deviceName
+	def ParsePath(pathDir):
+		RplStr = '\\Users\\' if '\\Users\\' in pathDir else '\\Documents and Settings\\'
+		deviceName,_,tail = pathDir.partition(RplStr)
+		loginUser, _,tail = tail.partition('\\')
+		return deviceName.replace('\\c$',''), loginUser.lower()
+	def GenDst(filename,deviceName,dstUser,dstDir,pathDir):	# Format Destination .pst file
+		if filename == '':
+			newfilepath = "\\\\tmfsvr7\\Users\\%s\\Email Backups\\"%(dstUser)
+			_,_, filename = pathDir.replace('.pst','').rpartition('\\')
+			return ('%s Backup %s %s.pst')%(newfilepath+filename,str(date.today().year),str(date.today().month))
+		else: return dstDir+'\\%s %s\\'%(deviceName, dstUser)+filename
+	# ############################################################ #
+	dstUser, dst, deviceName = reverseDict(pathDir)	
+	if DoCopy == 'Floor' and not 'floor' in dst.lower(): return
+	if DoCopy == 'Test': print('Copy: '+pathDir+'\nTo: '+dst)
 	if not path.isfile(dst):
-		print('Launching MP')
-		Process(target=DoCopyBit, args=(newfilepath,dst,pathDir,dstUser)).start()
-
-def DoCopyBit(newfilepath,dst,pathDir,dstUser):
-		# Make a new destination folder and local log file if this 
-		# is the first time
-	try:
-		makedirs(newfilepath)
-	except FileExistsError:
-		pass
-	Path('Log.txt').touch()
+		Process(target=CloseOutlook, args=(deviceName,)).start()
+		Process(target=DoCopyBit, args=(dst,pathDir,dstUser,FilePathList)).start()
+		print('Copying', dst)
+	else: print('Already Done:', dst)
 	
-		# Now lets back up the file, and log success or errors
+def CloseOutlook(deviceName): system("taskkill /s "+deviceName+" /u zvanmeter /FI \"IMAGENAME eq OUTLOOK.EXE\"")
+def DoCopyBit(dst,pathDir,dstUser,FilePathList):
+	with suppress(FileExistsError):
+		filepath,_,_ = dst.rpartition('\\')
+		makedirs(filepath)
 	try:
+		sleep(5)
 		copyfile(pathDir, dst)
-		now = datetime.strftime(datetime.now(),'%d/%m, %H:%M')
-		msg = now+' Backup Successful: '+pathDir
-	except PermissionError as e:		
-		now = datetime.strftime(datetime.now(),'%d/%m, %H:%M')
-		msg = now+' Backup Failed, I probably couldnt close Outlook: '+pathDir+' '+str(e)
-		remove(dst)
-	except Exception as e:		
-		now = datetime.strftime(datetime.now(),'%d/%m, %H:%M')
-		msg = now+' Backup Failed: '+pathDir+' '+str(e)
-		remove(dst)
+		msg = datetime.strftime(datetime.now(),'%d/%m, %H:%M')+' Backup Successful: '+pathDir
+	except Exception as e:
+		msg = datetime.strftime(datetime.now(),'%d/%m, %H:%M')+' Backup Failed: '+pathDir+' '+str(e)
+		if path.isfile(dst): remove(dst)
 	print(msg)
-	with open('Log.txt', 'a') as f:
+	with open(FilePathList[2], 'a') as f:
 		f.write(msg+'\n')
-	return
 
-
-def getPstList():
+def GenPstList(Deepscan):						# Find all .pst files in the domain
+	def is_up(addr):							# Simple ping script
+		s = socket(AF_INET, SOCK_STREAM)
+		s.settimeout(0.01)
+		with suppress(gaierror):
+			if not s.connect_ex((addr,135)):    # connect to the remote host on port 135
+				s.close()                       
+				return 1
+		s.close()
+	def GenDeviceMap(Deepscan):
+		for ip in range(1,256 if Deepscan==0 else 501):   				
+			addr = '192.168.1.'+str(ip)
+			if is_up(addr):						# If the ping is good, lets format our device map dictionary
+				deviceName = getfqdn(addr).replace('.tmfdomain.local','').replace('.TMFDOMAIN.local','')
+				if Deepscan == 1: 
+					deviceDict[deviceName] = addr
+				else:
+					for key, value in deviceDict.items():
+						if key.upper() == deviceName.upper():
+							deviceDict[key] = addr
+		return deviceDict
 	pathDirDict = {}
-	for deviceName, CompIP in GenDeviceMap().items():
+	for deviceName, CompIP in GenDeviceMap(Deepscan).items():
 		if not CompIP == '':
-			print(CompIP, '=', deviceName)
-			
-			# These three locations are the only locations we've ever found .pst files in
-		Locations = [
-			'\\\\%s\\c$\\Users\\*\\Documents\\Outlook Files\\*.pst' % (deviceName),
-			'\\\\%s\\c$\\Users\\*\\AppData\\Local\\Microsoft\\Outlook\\*.pst' % (deviceName),
-			'\\\\%s\\c$\\Documents and Settings\\*\\\Local Settings\Application Data\Microsoft\Outlook\\*.pst' % (deviceName)
-			]
-			
-			# Get all .pst files and link them with the IP of each comp
-		for PstPath in Locations:
-			globList = glob(PstPath)
-			for item in globList:
-				pathDirDict[item] = CompIP
-				
-		'''		# Really really dont use this often
-			# Otherwise, use the deepscan
-		alphabet = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P',
-			'Q','R','S','T','U','V','W','S','Y','Z']
-		for letter in alphabet:
-			globList = glob('\\\\%s\\%s$\\**/*.pst'%(deviceName,letter), recursive=True)	
-			for item in globList:
-				pathDirDict[item] = CompIP
-		'''
+			for PstPath in [	# These three locations are the only locations we've ever found .pst files in
+				'\\\\%s\\c$\\Users\\*\\Documents\\Outlook Files\\' % (deviceName),
+				'\\\\%s\\c$\\Users\\*\\AppData\\Local\\Microsoft\\Outlook\\' % (deviceName),
+				'\\\\%s\\c$\\Documents and Settings\\*\\\Local Settings\Application Data\Microsoft\Outlook\\' % (deviceName),
+				]:
+				for item in glob(PstPath+'*.ost'):
+					pathDirDict[item] = CompIP
+				for item in glob(PstPath+'*.pst'):
+					pathDirDict[item] = CompIP
 	return pathDirDict
 	
-def reverseDict(loginUser,pathDir):	#dstDir, dstUser = reverseDict(loginUser)
-	if loginUser in userKeyDict:
-		#print(pathDir)		#all user .pst files
-		dstUser = list(userKeyDict.values())[list(userKeyDict.keys()).index(loginUser)]
-		return '\\\\tmfsvr7\\Users\\%s'%(dstUser), dstUser, ''
-		
-	else:
-		if loginUser in floorKeyDict:
-			dstDir = '\\\\TMFSVR7\\Users\\Floor Backups'	
-			#print(pathDir)		#all floor .pst files
-		else:
-			dstDir = '\\\\TMFSVR7\\Users\\All Leftover Email Backups'
-			#print(pathDir)		#all unallocated .pst files
-		head,sep,filename = pathDir.rpartition('\\')
-		filename = '%s %s' %(loginUser, filename)
-		return dstDir, loginUser, filename
-
-def CountDown():
-		# Wait to continue until 12:01 am
-	target = '00:01'
-	while True:
-		sleep(1)
-		now = datetime.strftime(datetime.now(),'%H:%M')
-		print(now, target,end="\r")
-		if now == target:
-			Main()
-			break
-
-def Main():
-		# Find all .pst files in the domain
-	for pathDir, CompIP in getPstList().items():
-		#print(pathDir)		#all .pst files
-		
-			# Format variables
-		if '\\Users\\' in pathDir:
-			head,sep,tail = pathDir.partition('\\Users\\')
-		elif '\\Documents and Settings\\' in pathDir:
-			head,sep,tail = pathDir.partition('\\Documents and Settings\\')
-		deviceName = head.replace('\\','').replace('c$','')
-		loginUser,sep,tail = tail.partition('\\')
-		dstDir, dstUser, filename = reverseDict(loginUser,pathDir)
-		
-			# Proceed to copy .pst files
-		copyPst(pathDir, dstDir, dstUser, filename, deviceName, CompIP)
-
+def Main(FilePathList,DoCountDown=1,DoCopy=1,AllPsts=[]):
+	def CountDown():
+		if DoCountDown == 1:
+			target = '00:01'
+			while True:
+				sleep(1)
+				now = datetime.strftime(datetime.now(),'%H:%M')
+				print(now, target,end="\r")
+				if now == target: return	
+		print('The countdown has been skipped.')
+	def LogData(pathDir,FilePathList):			# Generate list of psts to check against
+		pathDir = pathDir.lower()
+		with open(FilePathList[0],'r') as f:
+			lines = f.readlines()
+		if not pathDir+'\n' in lines:
+			print('Logging New Pst: '+pathDir)
+			with open(FilePathList[0],'a') as f:
+				f.write(pathDir+'\n')
+	def CheckRecordedPsts(AllPsts,FilePathList):	# Now we check to see if we backed up everything we expected to
+		with open(FilePathList[0],'r') as f:
+			lines = f.readlines()
+		print('Found: %s/%s'%(len(AllPsts),len(lines)))
+		with open(FilePathList[1],'a') as f:
+			for line in lines:
+				if not line in AllPsts:
+					print('We couldnt find: '+line.replace('\n',''))
+					f.write(str(date.today())+','+line)
+	# ############################################################ #
+	Path(FilePathList[2]).touch()
+	CountDown()
+	Deepscan = 1 if DoCopy == 'Dpscn' else 0
+	print('We\'re doing this for real, hide your outlook, hide your wife. cause we backing up everything out here')
+	for pathDir, _ in GenPstList(Deepscan).items():
+		AllPsts.append(pathDir.lower()+'\n')
+		try:
+			if DoCopy == 1: 								CopyPst(pathDir,DoCopy,FilePathList)
+			elif DoCopy == 'Floor': 						CopyPst(pathDir,DoCopy,FilePathList)
+			elif DoCopy == 'Test' and 'ex326' in pathDir:	CopyPst(pathDir,DoCopy,FilePathList)
+			elif DoCopy == 'Dpscn': 						print(pathDir)
+			LogData(pathDir,FilePathList)	
+		except Exception as e: print(e)
+	CheckRecordedPsts(AllPsts,FilePathList)	
+	if DoCopy == 1: input('Press Enter to close\n')
 		
 if __name__ == '__main__':
-	#CountDown()
-	Main()
-				
-	while True:
-		sleep(1)
-		
-	
+	LocalDirectory  = '\\\\TMFSVR7\\Users\\Zach\\Script Backups\\Python Scripts\\Outlook Backup\\'
+	FilePathList = [
+			LocalDirectory+'List of All PSTs.txt',
+			LocalDirectory+'Files we Missed.txt',
+			LocalDirectory+'Log.txt'
+			]
+	DoCopyOptions = [
+			0,		#0	# Do not Copy
+			1,		#1	# Proceed with no special conditions
+			'Floor',	#2	# Only Copy Floor Dict
+			'Test',		#3	# Target Specific Computers
+			'Dpscn'		#4	# Run a single iteration
+			]
+	Main(FilePathList,DoCountDown=0,DoCopy=DoCopyOptions[1]) 
